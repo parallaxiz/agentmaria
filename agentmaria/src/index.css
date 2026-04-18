@@ -1,0 +1,60 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand: #3b82f6;
+  --color-brand-hover: #2563eb;
+  
+  --color-bg-primary: #09090b;
+  --color-bg-secondary: #18181b;
+  --color-bg-tertiary: #27272a;
+  
+  --color-text-primary: #fafafa;
+  --color-text-secondary: #a1a1aa;
+  --color-text-tertiary: #71717a;
+  
+  --color-border: #27272a;
+  
+  --radius-xl: 1rem;
+  --radius-2xl: 1.5rem;
+}
+
+@layer base {
+  body {
+    @apply bg-black text-text-primary antialiased selection:bg-brand/30 selection:text-brand;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+}
+
+.tab-active {
+  @apply text-white border-b-2 border-brand font-bold;
+}
+
+.tab-inactive {
+  @apply text-text-tertiary hover:text-text-secondary transition-colors;
+}
+
+/* Custom styles for React Flow in Dark Mode */
+.react-flow__handle {
+  @apply !w-3 !h-3 !bg-brand !border-2 !border-bg-secondary;
+}
+
+.react-flow__edge-path {
+  @apply !stroke-text-tertiary;
+  stroke-width: 2;
+}
+
+.react-flow__controls {
+  @apply !bg-bg-secondary !border !border-border !shadow-xl;
+}
+
+.react-flow__controls-button {
+  @apply !border-b !border-border hover:!bg-bg-tertiary !fill-text-primary;
+}
+
+.react-flow__background {
+  @apply !bg-bg-primary;
+}
+
+.react-flow__node {
+  @apply !border-none !p-0;
+}
