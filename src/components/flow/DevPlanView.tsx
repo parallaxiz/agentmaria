@@ -563,7 +563,7 @@ const NodeRenderer = ({ node, blackboard, activeProject }: { node: any, blackboa
         </div>
 
         {view === 'preview' && hasPreview ? (
-          <div className="w-full aspect-video rounded-2xl overflow-hidden border border-white/5 bg-white shadow-2xl relative group">
+          <div className="w-full h-[800px] rounded-2xl overflow-hidden border border-white/5 bg-white shadow-2xl relative group">
             <iframe
               key={htmlContent.length} // Force remount if content changes logically
               srcDoc={htmlContent}

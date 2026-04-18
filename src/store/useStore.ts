@@ -45,6 +45,7 @@ interface AppState {
   setSelectedNodeId: (id: string | null) => void;
   deleteNode: (nodeId: string) => void;
   updateBlackboard: (slot: keyof Blackboard, data: any) => void;
+  clearCanvas: () => void;
   
   // Flow Actions for current active project
   onNodesChange: (changes: NodeChange[]) => void;
@@ -147,6 +148,20 @@ export const useStore = create<AppState>()(
                 }
               : p
           ),
+        });
+      },
+
+      clearCanvas: () => {
+        const { activeProjectId, projects } = get();
+        if (!activeProjectId) return;
+
+        set({
+          projects: projects.map((p) =>
+            p.id === activeProjectId
+              ? { ...p, nodes: [], edges: [] }
+              : p
+          ),
+          selectedNodeId: null,
         });
       },
 

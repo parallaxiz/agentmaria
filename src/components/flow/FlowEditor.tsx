@@ -4,6 +4,7 @@ import {
   Background, 
   Controls, 
   MiniMap,
+  Panel,
   BackgroundVariant,
   ReactFlowProvider,
   type Node
@@ -68,12 +69,14 @@ const FlowInner = () => {
   const updateBlackboard = useStore((state) => state.updateBlackboard);
   const addNode = useStore((state) => state.addNode);
   const deleteNode = useStore((state) => state.deleteNode);
-  const setSelectedNodeId = useStore((state) => state.setSelectedNodeId);
+  const clearCanvas = useStore((state) => state.clearCanvas);
   const setActiveProject = useStore((state) => state.setActiveProject);
+  const setSelectedNodeId = useStore((state) => state.setSelectedNodeId);
 
   const [isSimulating, setIsSimulating] = useState(false);
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [activeTab, setActiveTab] = useState<'workflow' | 'devplan' | 'warroom'>('workflow');
+  const [menu, setMenu] = useState<{ id: string; top: number; left: number } | null>(null);
   
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
 
@@ -81,6 +84,28 @@ const FlowInner = () => {
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
   }, []);
+
+  const onNodeContextMenu = useCallback(
+    (event: React.MouseEvent, node: any) => {
+      // Prevent native context menu from showing
+      event.preventDefault();
+
+      // Calculate position of the context menu. 
+      // We want it slightly to the right of the click for better ergonomics.
+      setMenu({
+        id: node.id,
+        top: event.clientY,
+        left: event.clientX,
+      });
+    },
+    [setMenu]
+  );
+
+  const onPaneClick = useCallback(() => setMenu(null), [setMenu]);
+  const onPaneContextMenu = useCallback((event: React.MouseEvent) => {
+    event.preventDefault();
+    setMenu(null);
+  }, [setMenu]);
 
   const onNodeDragStop = useCallback(
     (event: React.MouseEvent, node: any) => {
@@ -347,20 +372,48 @@ const FlowInner = () => {
               nodeTypes={nodeTypes}
               onNodeDragStop={onNodeDragStop}
               onNodeDoubleClick={onNodeDoubleClick}
+              onNodeContextMenu={onNodeContextMenu}
+              onPaneClick={onPaneClick}
+              onPaneContextMenu={onPaneContextMenu}
               onDragOver={onDragOver}
               autoPanOnNodeDrag={false}
               fitView
               className="bg-black"
             >
-              <Background variant={BackgroundVariant.Dots} gap={50} size={1.5} color="#333" />
+              <Background variant={BackgroundVariant.Dots} gap={80} size={6} color="#333" />
               <Controls position="bottom-left" className="!bg-zinc-900 !border-white/10 !shadow-2xl" style={{ marginBottom: '80px' }} />
-              <MiniMap 
-                position="bottom-left"
-                style={{ backgroundColor: '#000', borderRadius: '12px', border: '1px solid #222' }} 
-                maskColor="rgba(255, 255, 255, 0.03)"
-                nodeStrokeWidth={3}
-                nodeColor="#3b82f6"
-              />
+              
+              <Panel position="bottom-left" className="mb-[160px] ml-6">
+                <button
+                  onClick={() => {
+                    if (confirm("Are you sure you want to clear the entire canvas? This cannot be undone.")) {
+                      clearCanvas();
+                    }
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white border border-red-500/20 rounded-xl transition-all font-bold text-xs shadow-2xl backdrop-blur-md group"
+                >
+                  <Trash2 size={14} className="group-hover:scale-110 transition-transform" />
+                  Clear Canvas
+                </button>
+              </Panel>
+
+              {menu && (
+                <div
+                  style={{ top: menu.top, left: menu.left }}
+                  className="fixed z-[100] bg-zinc-900/90 backdrop-blur-xl border border-white/5 p-1 rounded-xl shadow-2xl animate-in fade-in zoom-in-95 duration-200"
+                >
+                  <button
+                    onClick={() => {
+                      deleteNode(menu.id);
+                      setMenu(null);
+                    }}
+                    className="flex items-center gap-3 px-4 py-2.5 w-48 text-left text-xs font-bold text-red-400 hover:bg-red-500 hover:text-white rounded-lg transition-all group"
+                  >
+                    <Trash2 size={14} className="group-hover:scale-110 transition-transform" />
+                    <span>Delete Node</span>
+                  </button>
+                </div>
+              )}
             </ReactFlow>
 
             {/* Bottom Actions Bar */}
