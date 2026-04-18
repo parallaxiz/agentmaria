@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import JSZip from 'jszip';
 import { useStore } from '../../store/useStore';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -19,7 +20,14 @@ import {
   Cpu,
   Zap,
   Eye,
-  FileCode
+  FileCode,
+  Folder,
+  ChevronRight,
+  ChevronDown,
+  Copy,
+  Check,
+  Download,
+  Loader2
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -39,13 +47,251 @@ const nodeIconMap: Record<string, any> = {
 };
 
 const extractJson = (str: string) => {
+  if (!str) return null;
   try {
     const jsonMatch = str.match(/```(?:json)?\s*([\s\S]*?)\s*```/) || [null, str];
     const candidate = jsonMatch[1] || str;
     return JSON.parse(candidate.trim());
   } catch (e) {
-    return null;
+    try {
+        return JSON.parse(str.trim());
+    } catch (e2) {
+        return null;
+    }
   }
+};
+
+interface FileNode {
+  path: string;
+  content: string;
+}
+
+interface TreeItem {
+  name: string;
+  path: string;
+  type: 'file' | 'folder';
+  children: TreeItem[];
+  content?: string;
+}
+
+const buildFileTree = (files: FileNode[]): TreeItem[] => {
+  const root: TreeItem[] = [];
+
+  files.forEach((file) => {
+    const parts = file.path.split('/');
+    let currentLevel = root;
+
+    parts.forEach((part, index) => {
+      let existingPath = currentLevel.find((item) => item.name === part);
+
+      if (!existingPath) {
+        const fullPath = parts.slice(0, index + 1).join('/');
+        existingPath = {
+          name: part,
+          path: fullPath,
+          type: index === parts.length - 1 ? 'file' : 'folder',
+          children: [],
+          content: index === parts.length - 1 ? file.content : undefined,
+        };
+        currentLevel.push(existingPath);
+      }
+      currentLevel = existingPath.children;
+    });
+  });
+
+  // Sort: Folders first, then alphabetically
+  const sortTree = (items: TreeItem[]) => {
+    items.sort((a, b) => {
+      if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+    items.forEach((item) => {
+      if (item.children.length > 0) sortTree(item.children);
+    });
+  };
+
+  sortTree(root);
+  return root;
+};
+
+const RepositoryView = ({ data }: { data: any }) => {
+  const [activeFilePath, setActiveFilePath] = useState<string>('');
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['src']));
+  const [copied, setCopied] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+
+  const repoData = typeof data === 'string' ? extractJson(data) : data;
+  const files = repoData?.files || [];
+  const tree = buildFileTree(files);
+
+  // Set initial file if none selected
+  useEffect(() => {
+    if (!activeFilePath && files.length > 0) {
+      const readme = files.find((f: any) => f.path.toLowerCase().includes('readme'));
+      setActiveFilePath(readme ? readme.path : files[0].path);
+    }
+  }, [files]);
+
+  const activeFile = files.find((f: any) => f.path === activeFilePath);
+
+  const toggleFolder = (path: string) => {
+    const next = new Set(expandedFolders);
+    if (next.has(path)) next.delete(path);
+    else next.add(path);
+    setExpandedFolders(next);
+  };
+
+  const handleCopy = () => {
+    if (activeFile?.content) {
+      navigator.clipboard.writeText(activeFile.content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  const handleDownloadZip = async () => {
+    if (!files.length) return;
+    
+    setDownloading(true);
+    try {
+      const zip = new JSZip();
+      
+      files.forEach((file: any) => {
+        // Remove leading slashes if any
+        const path = file.path.startsWith('/') ? file.path.slice(1) : file.path;
+        zip.file(path, file.content);
+      });
+
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${repoData.repo_name || 'project'}-repository.zip`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("ZIP Generation failed:", error);
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const renderTree = (items: TreeItem[], level = 0) => {
+    return items.map((item) => {
+      const isExpanded = expandedFolders.has(item.path);
+      const isActive = activeFilePath === item.path;
+
+      if (item.type === 'folder') {
+        return (
+          <div key={item.path}>
+            <button
+              onClick={() => toggleFolder(item.path)}
+              className="w-full flex items-center gap-2 py-1 px-2 hover:bg-[#1f242c] rounded text-zinc-400 hover:text-white transition-colors text-xs font-medium"
+              style={{ paddingLeft: `${level * 12 + 8}px` }}
+            >
+              {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              <Folder size={14} className="text-blue-400" />
+              <span className="truncate">{item.name}</span>
+            </button>
+            {isExpanded && renderTree(item.children, level + 1)}
+          </div>
+        );
+      }
+
+      return (
+        <button
+          key={item.path}
+          onClick={() => setActiveFilePath(item.path)}
+          className={cn(
+            "w-full flex items-center gap-2 py-1 px-2 rounded transition-colors text-xs",
+            isActive ? "bg-[#1f242c] text-white font-semibold" : "text-zinc-500 hover:bg-[#1f242c] hover:text-zinc-300"
+          )}
+          style={{ paddingLeft: `${level * 12 + 28}px` }}
+        >
+          <FileCode size={14} className={cn(isActive ? "text-blue-400" : "text-zinc-600")} />
+          <span className="truncate">{item.name}</span>
+        </button>
+      );
+    });
+  };
+
+  if (!repoData || !files.length) {
+    return (
+      <div className="flex flex-col items-center justify-center p-20 space-y-4 bg-[#0d1117] rounded-3xl border border-[#30363d] animate-pulse">
+        <Bot size={48} className="text-zinc-700" />
+        <div className="text-center">
+            <h3 className="text-lg font-bold text-zinc-400">Repository Initializing...</h3>
+            <p className="text-sm text-zinc-600">Lead Developer is sculpting your codebase architecture.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-[700px] bg-[#0d1117] border border-[#30363d] rounded-2xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-500">
+      {/* Sidebar */}
+      <div className="w-64 flex-shrink-0 bg-[#010409] border-r border-[#30363d] flex flex-col">
+        <div className="p-4 border-b border-[#30363d] flex items-center justify-between">
+          <h3 className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Files</h3>
+          <Cpu size={14} className="text-zinc-700" />
+        </div>
+        <div className="flex-grow overflow-y-auto p-2 scrollbar-thin scrollbar-thumb-[#30363d]">
+          {renderTree(tree)}
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="flex-grow flex flex-col min-w-0">
+        <header className="h-12 flex items-center justify-between px-6 bg-[#010409] border-b border-[#30363d]">
+          <div className="flex items-center gap-3 min-w-0">
+            <FileCode size={16} className="text-zinc-500 flex-shrink-0" />
+            <span className="text-xs font-mono text-zinc-300 truncate">{activeFilePath}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={handleDownloadZip}
+              disabled={downloading}
+              className="p-1.5 hover:bg-white/5 rounded-lg text-zinc-500 hover:text-zinc-300 transition-all border border-transparent hover:border-white/10 flex items-center gap-2 disabled:opacity-50"
+            >
+              {downloading ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <Download size={14} />
+              )}
+              <span className="text-[10px] font-bold uppercase tracking-wider">ZIP</span>
+            </button>
+            <button 
+              onClick={handleCopy}
+              className="p-1.5 hover:bg-white/5 rounded-lg text-zinc-500 hover:text-zinc-300 transition-all border border-transparent hover:border-white/10 flex items-center gap-2"
+            >
+              {copied ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+              <span className="text-[10px] font-bold uppercase tracking-wider">{copied ? 'Copied' : 'Copy'}</span>
+            </button>
+          </div>
+        </header>
+        
+        <div className="flex-grow overflow-auto bg-[#0d1117]">
+          <SyntaxHighlighter
+            language="typescript"
+            style={vscDarkPlus}
+            customStyle={{
+              margin: 0,
+              padding: '2rem',
+              fontSize: '13px',
+              fontFamily: 'var(--font-mono, monospace)',
+              lineHeight: '1.7',
+              backgroundColor: 'transparent',
+            }}
+            showLineNumbers
+          >
+            {activeFile?.content || '// Select a file to view code'}
+          </SyntaxHighlighter>
+        </div>
+      </div>
+    </div>
+  );
 };
 
 const NodeRenderer = ({ node, blackboard, activeProject }: { node: any, blackboard: any, activeProject: any }) => {
@@ -85,6 +331,10 @@ const NodeRenderer = ({ node, blackboard, activeProject }: { node: any, blackboa
   };
 
   result = blackboard[slotMap[node.type]] || '';
+
+  if (node.type === 'developer') {
+    return <RepositoryView data={result} />;
+  }
 
   if (!result && status !== 'done' && status !== 'waiting') {
     return (

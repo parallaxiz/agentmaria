@@ -1,9 +1,9 @@
-import { GoogleGenAI } from '@google/genai';
+import Groq from 'groq-sdk';
 
 const getAI = () => {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+  const apiKey = import.meta.env.VITE_GROQ_API_KEY;
   if (!apiKey) return null;
-  return new GoogleGenAI({ apiKey });
+  return new Groq({ apiKey, dangerouslyAllowBrowser: true });
 };
 
 const isOpenRouterKey = (key: string) => key.startsWith('sk-or-v1-');
@@ -56,7 +56,7 @@ Your report MUST include the following 6 sections in clear Markdown:
 - Include exactly "CONFIDENCE_SCORE: XX" (0-100) at the very end.
 `;
 
-const MODEL_CANDIDATES = ['gemini-1.5-flash', 'gemini-flash-latest', 'gemini-1.5-pro', 'gemini-pro-latest'];
+const MODEL_CANDIDATES = ['llama-3.3-70b-versatile', 'llama-3.1-70b-versatile'];
 
 const buildFallbackResearch = (projectData: { projectName: string; description: string; reference: string }): string => {
   const projectLabel = projectData.projectName || 'Untitled Project';
@@ -108,10 +108,29 @@ CONFIDENCE_SCORE: 82
 };
 
 export async function runResearcherAgent(projectData: { projectName: string, description: string, reference: string }): Promise<string> {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+  const apiKey = import.meta.env.VITE_GROQ_API_KEY;
   if (!apiKey) return buildFallbackResearch(projectData);
 
-  const ai = getAI();
+  if (isOpenRouterKey(apiKey)) {
+    try {
+      const prompt = `
+### Project Context
+Name: ${projectData.projectName}
+Brief: ${projectData.description}
+Reference/Theme: ${projectData.reference}
+
+### Task
+Perform a deep technical and market research analysis for this project.
+      `;
+      return await runOpenRouterResearch(apiKey, prompt);
+    } catch (err: any) {
+      console.error('Researcher OpenRouter Error:', err);
+      return `${buildFallbackResearch(projectData)}\n\n> Note: OpenRouter API request failed, fallback research was used.`;
+    }
+  }
+
+  const groq = getAI();
+  if (!groq) return buildFallbackResearch(projectData);
 
   const prompt = `
 ### Project Context
@@ -123,33 +142,22 @@ Reference/Theme: ${projectData.reference}
 Perform a deep technical and market research analysis for this project.
   `;
 
-  if (isOpenRouterKey(apiKey)) {
-    try {
-      return await runOpenRouterResearch(apiKey, prompt);
-    } catch (err: any) {
-      console.error('Researcher OpenRouter Error:', err);
-      return `${buildFallbackResearch(projectData)}\n\n> Note: OpenRouter API request failed, fallback research was used.`;
-    }
-  }
-
-  if (!ai) return buildFallbackResearch(projectData);
-
   for (const model of MODEL_CANDIDATES) {
     try {
-      const response = await ai.models.generateContent({
+      const chatCompletion = await groq.chat.completions.create({
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user', content: prompt }
+        ],
         model,
-        contents: prompt,
-        config: {
-          temperature: 0.5,
-          systemInstruction: SYSTEM_PROMPT,
-        }
+        temperature: 0.5,
       });
-      return response.text || 'Error: Blank research response';
+      return chatCompletion.choices[0]?.message?.content || 'Error: Blank research response';
     } catch (err: any) {
       console.error(`Researcher Generation Error (${model}):`, err);
     }
   }
 
   // Keep workflow resilient even if external AI call fails.
-  return `${buildFallbackResearch(projectData)}\n\n> Note: Gemini API request failed, fallback research was used.`;
+  return `${buildFallbackResearch(projectData)}\n\n> Note: Groq API request failed, fallback research was used.`;
 }

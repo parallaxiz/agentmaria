@@ -1,64 +1,91 @@
-import { GoogleGenAI } from '@google/genai';
+import Groq from 'groq-sdk';
 
 const getAI = () => {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+  const apiKey = import.meta.env.VITE_GROQ_API_KEY;
   if (!apiKey) return null;
-  return new GoogleGenAI({ apiKey });
+  return new Groq({ apiKey, dangerouslyAllowBrowser: true });
 };
 
 const SYSTEM_PROMPT = `
-You are a Developer Agent in an AI Digital Workforce. Your job is to translate requirements and designs into high-quality code.
+You are a Lead Developer Agent. Your job is to translate project requirements, research, and designs into a full, production-ready project repository.
 
-### Your outputs:
-1. **Implementation Details** – Provide a detailed markdown-formatted breakdown of the implementation.
-2. **Code Blocks** – Provide clean, well-commented code in the appropriate language (e.g., Python, TypeScript, React).
-3. **Task List** – List the specific tasks completed.
+### Requirements:
+1. **Output Format**: You MUST output a valid JSON object.
+2. **JSON Schema**:
+{
+  "repo_name": "string",
+  "files": [
+    { "path": "string", "content": "string" }
+  ]
+}
+3. **Project Structure**:
+   - Generate a comprehensive file tree.
+   - Include standard files: package.json, README.md, .gitignore.
+   - Include core source files (e.g., src/App.tsx, src/index.css, src/main.tsx, components/...).
+   - Implement the logic described in the Research and Design specs provided.
 
 ### Guidelines:
-- Write modular, reusable, and efficient code.
-- Focus on the logic requested in the research and design specs.
-- Use clean Markdown and structure your output reasonably.
+- Use modern, clean, and well-commented code.
+- Ensure all file paths are logical and follow standard project conventions.
+- Provide FULL file contents, not snippets.
+- Only return the JSON object, NO other text or markdown wrappers.
 `;
 
-const MODEL_CANDIDATES = ['gemini-1.5-flash', 'gemini-flash-latest', 'gemini-1.5-pro', 'gemini-pro-latest'];
+const MODEL_CANDIDATES = ['llama-3.3-70b-versatile', 'llama-3.1-70b-versatile'];
 
-export async function runDeveloperAgent(projectData: { projectName: string, description: string }, research: string, design?: string): Promise<string> {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-  const fallbackCode = `// Fallback Implementation for ${projectData.projectName}\n// Standard logic template applied due to API unavailability.\n\nexport const App = () => {\n  return (\n    <div className="p-8 max-w-2xl mx-auto space-y-4">\n      <h1 className="text-3xl font-bold">${projectData.projectName}</h1>\n      <p className="text-zinc-400">${projectData.description}</p>\n      <div className="p-4 bg-zinc-900 rounded-xl border border-white/10">\n        <p className="text-sm text-zinc-500 italic">Live implementation preview is being initialized...</p>\n      </div>\n    </div>\n  );\n};`;
+export async function runDeveloperAgent(projectData: { projectName: string, description: string }, research: string, design?: string, plannedFeatures?: string): Promise<string> {
+  const groq = getAI();
+  const fallbackRepo = JSON.stringify({
+    repo_name: projectData.projectName.toLowerCase().replace(/\s+/g, '-'),
+    files: [
+      {
+        path: "README.md",
+        content: `# ${projectData.projectName}\n\n${projectData.description}\n\n## Repository Status\nThis repository is currently in an initialization state.`
+      },
+      {
+        path: "src/App.tsx",
+        content: `export default function App() {\n  return (\n    <div className="p-8">\n      <h1>Welcome to ${projectData.projectName}</h1>\n    </div>\n  );\n}`
+      }
+    ]
+  });
 
-  if (!apiKey) return fallbackCode;
-
-  const ai = getAI();
-  if (!ai) return fallbackCode;
+  if (!groq) return fallbackRepo;
 
   const prompt = `
 ### Project Context
 Name: ${projectData.projectName}
 Brief: ${projectData.description}
 
-### Input Data
-Research: ${research}
-Design Specs: ${design || 'No design specs provided yet.'}
+### MANDATORY MVP FEATURES TO IMPLEMENT
+You MUST implement the following features in the codebase. Every list item below requires dedicated logic/components in the PR:
+${plannedFeatures || 'Use general best practices for this niche.'}
+
+### Input Context
+Research Data: ${research}
+UI/Design Specs: ${design || 'No design specs provided yet.'}
 
 ### Task
-Generate the core implementation logic and code for this project based on the context above.
+Generate the complete project repository. Ensure that all Selected MVP Features above have functional code implementations in the generated files.
   `;
 
   for (const model of MODEL_CANDIDATES) {
     try {
-      const response = await ai.models.generateContent({
+      const chatCompletion = await groq.chat.completions.create({
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user', content: prompt }
+        ],
         model,
-        contents: prompt,
-        config: {
-          temperature: 0.3,
-          systemInstruction: SYSTEM_PROMPT,
-        }
+        temperature: 0.3,
+        response_format: { type: 'json_object' }
       });
-      return response.text || 'Error: Blank developer response';
+
+      const text = chatCompletion.choices[0]?.message?.content || '';
+      if (text) return text;
     } catch (err: any) {
       console.error(`Developer Generation Error (${model}):`, err);
     }
   }
 
-  return fallbackCode;
+  return fallbackRepo;
 }

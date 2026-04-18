@@ -1,9 +1,9 @@
-import { GoogleGenAI } from '@google/genai';
+import Groq from 'groq-sdk';
 
 const getAI = () => {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+  const apiKey = import.meta.env.VITE_GROQ_API_KEY;
   if (!apiKey) return null;
-  return new GoogleGenAI({ apiKey });
+  return new Groq({ apiKey, dangerouslyAllowBrowser: true });
 };
 
 const SYSTEM_PROMPT = `
@@ -29,7 +29,7 @@ You are a Product Planner Agent. Your job is to define the MVP feature list, rec
 - Ensure the JSON is valid and only return the JSON object.
 `;
 
-const MODEL_CANDIDATES = ['gemini-1.5-flash', 'gemini-flash-latest', 'gemini-1.5-pro', 'gemini-pro-latest'];
+const MODEL_CANDIDATES = ['llama-3.3-70b-versatile', 'llama-3.1-70b-versatile'];
 
 const buildFallbackPlan = (projectData: { projectName: string, description: string }) => {
   return JSON.stringify({
@@ -52,8 +52,8 @@ const buildFallbackPlan = (projectData: { projectName: string, description: stri
 };
 
 export async function runPlannerAgent(projectData: { projectName: string, description: string }): Promise<string> {
-  const ai = getAI();
-  if (!ai) return buildFallbackPlan(projectData);
+  const groq = getAI();
+  if (!groq) return buildFallbackPlan(projectData);
 
   const prompt = `
 ### Project Context
@@ -67,22 +67,18 @@ Return the result in the specified JSON format.
 
   for (const model of MODEL_CANDIDATES) {
     try {
-      const response = await ai.models.generateContent({
+      const chatCompletion = await groq.chat.completions.create({
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user', content: prompt }
+        ],
         model,
-        contents: prompt,
-        config: {
-          temperature: 0.2,
-          systemInstruction: SYSTEM_PROMPT,
-        }
+        temperature: 0.2,
+        response_format: { type: 'json_object' }
       });
       
-      const text = response.text || '';
-      // Cleanup markdown blocks if Gemini includes them
-      const jsonStart = text.indexOf('{');
-      const jsonEnd = text.lastIndexOf('}') + 1;
-      const jsonStr = text.substring(jsonStart, jsonEnd);
-      
-      if (jsonStr) return jsonStr;
+      const text = chatCompletion.choices[0]?.message?.content || '';
+      if (text) return text;
     } catch (err: any) {
       console.error(`Planner Generation Error (${model}):`, err);
     }

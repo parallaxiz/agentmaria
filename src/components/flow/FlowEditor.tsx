@@ -157,45 +157,68 @@ const FlowInner = () => {
           const research = await runResearcherAgent(coreGoal);
           updateBlackboard('research_data', research);
         }
-        if (node.type === 'planner') {
+        else if (node.type === 'planner') {
           const coreGoal = activeProject.blackboard.core_goal;
           const plan = await runPlannerAgent(coreGoal);
           updateBlackboard('planning_data', plan);
           
-          // PAUSE FOR HUMAN IN THE LOOP
+          // PAUSE FOR HUMAN IN THE LOOP (User Approves Plan)
           updateNodeData(node.id, { status: 'waiting' });
           setSimulationState(activeProject.id, 'waiting');
           setIsSimulating(false);
-          return; // Stop simulation loop
+          return; 
         }
         else if (node.type === 'designer') {
           const coreGoal = activeProject.blackboard.core_goal;
-          const design = await runDesignerAgent(coreGoal.description);
+          const planningDataStr = activeProject.blackboard.planning_data;
+          
+          let selectedFeatures = '';
+          try {
+            if (planningDataStr) {
+              const plan = JSON.parse(planningDataStr);
+              selectedFeatures = plan.mvp_features?.map((f: any) => `- ${f.feature}: ${f.description}`).join('\n') || '';
+            }
+          } catch (e) {
+            console.error("Failed to parse planning data for Designer:", e);
+          }
+
+          const design = await runDesignerAgent(coreGoal.description, undefined, selectedFeatures);
           updateBlackboard('ui_specs', design);
         }
         else if (node.type === 'developer') {
           const coreGoal = activeProject.blackboard.core_goal;
           const research = activeProject.blackboard.research_data;
           const design = activeProject.blackboard.ui_specs;
-          
-          if (!research) {
-            // Loading state if prerequisite missing (Blackboard check)
-            updateNodeData(node.id, { status: 'idle' });
-            while (!activeProject.blackboard.research_data) {
-              await new Promise(r => setTimeout(r, 1000));
+          const planningDataStr = activeProject.blackboard.planning_data;
+
+          let selectedFeatures = '';
+          try {
+            if (planningDataStr) {
+              const plan = JSON.parse(planningDataStr);
+              selectedFeatures = plan.mvp_features?.map((f: any) => `- ${f.feature}: ${f.description}`).join('\n') || '';
             }
-            updateNodeData(node.id, { status: 'processing' });
+          } catch (e) {
+            console.error("Failed to parse planning data for Developer:", e);
+          }
+          
+          if (!research || research.includes('Note:')) {
+             console.warn("Developer node running with fallback or missing research data.");
           }
 
-          const code = await runDeveloperAgent(coreGoal, research, design);
+          const code = await runDeveloperAgent(coreGoal, research, design, selectedFeatures);
           updateBlackboard('implementation_tasks', code);
         }
         else {
           // Fallback for other nodes
-          await new Promise(resolve => setTimeout(resolve, 1500));
+          await new Promise(resolve => setTimeout(resolve, 800));
         }
 
         updateNodeData(node.id, { status: 'done' });
+        
+        // THROTTLING: 2s pause between agent calls for Groq stability and UI feel
+        if (i < sortedNodes.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
       } catch (err: any) {
         console.error(`Error in ${node.type}:`, err);
         updateNodeData(node.id, { status: 'error' });

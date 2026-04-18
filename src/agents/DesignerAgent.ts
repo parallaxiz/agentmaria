@@ -1,9 +1,9 @@
-import { GoogleGenAI } from '@google/genai';
+import Groq from 'groq-sdk';
 
 const getAI = () => {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-  if (!apiKey) throw new Error("VITE_GEMINI_API_KEY is not defined in environment variables.");
-  return new GoogleGenAI({ apiKey });
+  const apiKey = import.meta.env.VITE_GROQ_API_KEY;
+  if (!apiKey) throw new Error("VITE_GROQ_API_KEY is not defined in environment variables.");
+  return new Groq({ apiKey, dangerouslyAllowBrowser: true });
 };
 
 const isOpenRouterKey = (key: string) => key.startsWith('sk-or-v1-');
@@ -34,31 +34,43 @@ const runOpenRouterDesigner = async (apiKey: string, prompt: string): Promise<st
   return data?.choices?.[0]?.message?.content || 'Error: Blank response';
 };
 
-const SYSTEM_PROMPT = `
-You are a Lead UI/UX Designer Agent. Your goal is to generate a high-fidelity, polished, and interactive landing page or app preview based on the user's project brief.
+const SYSTEM_PROMPT = `You are a Senior Lead UI/UX Designer Agent specializing in high-conversion, 'Vercel-style' and 'Apple-style' digital aesthetics. Your goal is to generate a comprehensive, high-fidelity landing page preview that feels like a finished product.
 
-### Design Principles:
-- **Style:** Modern, sleek, "Apple-style" or "Vercel-style" aesthetics (dark mode by default, glassmorphism, subtle gradients).
-- **Responsiveness:** Use Tailwind-like utility patterns (written in standard CSS) to ensure it looks great on mobile and desktop.
-- **Interactivity:** Add hover effects, smooth transitions, and simple micro-animations.
-- **Content:** Populate with realistic dummy text and placeholders related to the specific project brief.
+Design Architecture Requirements:
 
-### Output Structure:
-1. **HTML/CSS Code Block:** Generate a single, self-contained HTML file. You MUST wrap this code in triple backticks with the 'html' language identifier (e.g., \`\`\`html ... \`\`\`).
-2. **Mandatory Handoff Text:** Immediately following the code block, you MUST include exactly:
-   "Here is your design preview. Do you want any changes? You can add, remove, or modify anything. Type your feedback, or say ‘approve’ to finalize."
+Layout Depth: The page must include a sticky glassmorphism Navbar, a high-impact Hero Section with a gradient text effect, a 3-column Features Grid, a detailed 'How it Works' section with step-indicators, and a professional Footer.
 
-### Guidelines:
-- DO NOT use external JS libraries or frameworks.
-- Use system fonts (Inter, SF Pro) or import Google Fonts if necessary.
-- Focus on high visual impact to "WOW" the user.
-- Ensure the code is clean and professional.
-`;
+Advanced Styling: Use CSS variables for a consistent dark-mode palette (#000000, #0a0a0a, #111111). Implement high-end visual effects: backdrop-filter: blur(), mask-image for fade effects, and subtle box-shadow glows.
 
-const MODEL_CANDIDATES = ['gemini-1.5-flash', 'gemini-flash-latest', 'gemini-1.5-pro', 'gemini-pro-latest'];
+Motion Design: Every section must have entry animations using @keyframes. Buttons must have 'shine' effects on hover and scale transitions.
+
+Responsiveness: Use a robust CSS Grid and Flexbox system that adapts flawlessly from mobile (390px) to ultra-wide (1440px) without using external frameworks.
+
+Content Requirements:
+
+Realism: Use industry-specific terminology related to the user's project brief instead of generic 'Lorem Ipsum'.
+
+Typography: Import and use 'Inter' or 'Plus Jakarta Sans' from Google Fonts for a modern, premium feel.
+
+Output Structure:
+
+HTML/CSS Code Block: Generate a single, self-contained, and verbose HTML file. Use detailed CSS classes that mimic Tailwind utility patterns for clarity. You MUST wrap this code in triple backticks with the 'html' language identifier.
+
+Mandatory Handoff Text: Immediately following the code block, you MUST include exactly:
+'Here is your design preview. Do you want any changes? You can add, remove, or modify anything. Type your feedback, or say ‘approve’ to finalize.'
+
+Constraints:
+
+No external JS libraries (no React, no jQuery).
+
+Use only standard CSS for all logic and animations.
+
+Focus on extreme detail—every pixel must look intentional.`;
+
+const MODEL_CANDIDATES = ['llama-3.3-70b-versatile', 'llama-3.1-70b-versatile'];
 
 const buildFallbackDesign = (brief: string) => {
-    return `
+  return `
 \`\`\`html
 <!DOCTYPE html>
 <html lang="en">
@@ -90,50 +102,50 @@ Here is your design preview. Do you want any changes? You can add, remove, or mo
   `.trim();
 };
 
-export async function runDesignerAgent(brief: string, constraints?: string): Promise<string> {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-  if (!apiKey) throw new Error("VITE_GEMINI_API_KEY is not defined in environment variables.");
+export async function runDesignerAgent(brief: string, constraints?: string, plannedFeatures?: string): Promise<string> {
+  const apiKey = import.meta.env.VITE_GROQ_API_KEY;
+  if (!apiKey) throw new Error("VITE_GROQ_API_KEY is not defined in environment variables.");
 
-  if (isOpenRouterKey(apiKey)) {
-    try {
-      return await runOpenRouterDesigner(apiKey, `
-### Task
+  const taskFocus = `
+### Project Overview
 Design Brief: ${brief}
 Constraints: ${constraints || 'None specified.'}
 
-Output the single cohesive HTML file code, followed immediately by exactly:
-"Here is your design preview. Do you want any changes? You can add, remove, or modify anything. Type your feedback, or say 'approve' to finalize."
-  `);
+### MANDATORY FEATURES TO IMPLEMENT
+These features were selected in the planning phase and MUST be visually and interactively represented in your design:
+${plannedFeatures || 'Use general best practices for this niche.'}
+
+### Task
+Generate a single cohesive HTML file that showcases these features using a high-fidelity "Vercel-style" aesthetic. 
+The output MUST be followed immediately by exactly:
+"Here is your design preview. Do you want any changes? You can add, remove, or modify anything. Type your feedback, or say ‘approve’ to finalize."
+  `;
+
+  if (isOpenRouterKey(apiKey)) {
+    try {
+      return await runOpenRouterDesigner(apiKey, taskFocus);
     } catch (err: any) {
       console.error("OpenRouter Generation Error:", err);
       return buildFallbackDesign(brief);
     }
   }
 
-  const ai = getAI();
-  const prompt = `
-### Task
-Design Brief: ${brief}
-Constraints: ${constraints || 'None specified.'}
-
-Output the single cohesive HTML file code, followed immediately by exactly:
-"Here is your design preview. Do you want any changes? You can add, remove, or modify anything. Type your feedback, or say ‘approve’ to finalize."
-  `;
+  const groq = getAI();
 
   for (const model of MODEL_CANDIDATES) {
     try {
-      const response = await ai.models.generateContent({
+      const chatCompletion = await groq.chat.completions.create({
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user', content: taskFocus }
+        ],
         model,
-        contents: prompt,
-        config: {
-          temperature: 0.7,
-          systemInstruction: SYSTEM_PROMPT,
-        }
+        temperature: 0.7,
       });
 
-      return response.text || 'Error: Blank response';
+      return chatCompletion.choices[0]?.message?.content || 'Error: Blank response';
     } catch (err: any) {
-      console.error(`Gemini Generation Error (${model}):`, err);
+      console.error(`Groq Generation Error (${model}):`, err);
     }
   }
 
