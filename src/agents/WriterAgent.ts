@@ -30,7 +30,8 @@ const MODEL_CANDIDATES = ['llama-3.3-70b-versatile', 'llama-3.1-70b-versatile'];
 export async function runWriterAgent(
   projectData: { projectName: string; description: string },
   implementationData: string,
-  researchData: string
+  researchData: string,
+  signal?: AbortSignal
 ): Promise<string> {
   const groq = getAI();
   if (!groq) return "Error: Writer Agent requires a valid GROQ_API_KEY.";
@@ -59,7 +60,7 @@ Generate a layman-friendly "Windows Setup & User Guide" for this project.
         ],
         model,
         temperature: 0.5,
-      });
+      }, { signal });
       return chatCompletion.choices[0]?.message?.content || 'Error: Blank documentation response';
     } catch (err: any) {
       console.error(`Writer Generation Error (${model}):`, err);

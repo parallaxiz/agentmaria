@@ -8,13 +8,14 @@ const getAI = () => {
 
 const isOpenRouterKey = (key: string) => key.startsWith('sk-or-v1-');
 
-const runOpenRouterDesigner = async (apiKey: string, prompt: string): Promise<string> => {
+const runOpenRouterDesigner = async (apiKey: string, prompt: string, signal?: AbortSignal): Promise<string> => {
   const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
     },
+    signal,
     body: JSON.stringify({
       model: import.meta.env.VITE_OPENROUTER_MODEL || 'meta-llama/llama-3.1-8b-instruct',
       temperature: 0.7,
@@ -102,7 +103,7 @@ Here is your design preview. Do you want any changes? You can add, remove, or mo
   `.trim();
 };
 
-export async function runDesignerAgent(brief: string, constraints?: string, plannedFeatures?: string): Promise<string> {
+export async function runDesignerAgent(brief: string, constraints?: string, plannedFeatures?: string, signal?: AbortSignal): Promise<string> {
   const apiKey = import.meta.env.VITE_GROQ_API_KEY;
   if (!apiKey) throw new Error("VITE_GROQ_API_KEY is not defined in environment variables.");
 
@@ -123,7 +124,7 @@ The output MUST be followed immediately by exactly:
 
   if (isOpenRouterKey(apiKey)) {
     try {
-      return await runOpenRouterDesigner(apiKey, taskFocus);
+      return await runOpenRouterDesigner(apiKey, taskFocus, signal);
     } catch (err: any) {
       console.error("OpenRouter Generation Error:", err);
       return buildFallbackDesign(brief);
@@ -141,7 +142,7 @@ The output MUST be followed immediately by exactly:
         ],
         model,
         temperature: 0.7,
-      });
+      }, { signal });
 
       return chatCompletion.choices[0]?.message?.content || 'Error: Blank response';
     } catch (err: any) {

@@ -31,7 +31,7 @@ Keep your feedback actionable and precise. Only return the JSON object.
 
 const MODEL_CANDIDATES = ['llama-3.3-70b-versatile', 'llama-3.1-70b-versatile'];
 
-export async function runTesterAgent(repoJson: string, projectContext: string): Promise<string> {
+export async function runTesterAgent(repoJson: string, projectContext: string, signal?: AbortSignal): Promise<string> {
   const groq = getAI();
   const fallbackResults = JSON.stringify({
     test_cases: [
@@ -66,7 +66,7 @@ Provide a clear list of passed/failed cases and detailed feedback for the develo
         model,
         temperature: 0.2,
         response_format: { type: 'json_object' }
-      });
+      }, { signal });
       
       const text = chatCompletion.choices[0]?.message?.content || '';
       if (text) return text;

@@ -10,7 +10,8 @@ const isOpenRouterKey = (key: string) => key.startsWith('sk-or-v1-');
 
 const runOpenRouterResearch = async (
   apiKey: string,
-  prompt: string
+  prompt: string,
+  signal?: AbortSignal
 ): Promise<string> => {
   const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
@@ -18,6 +19,7 @@ const runOpenRouterResearch = async (
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
     },
+    signal,
     body: JSON.stringify({
       model: import.meta.env.VITE_OPENROUTER_MODEL || 'meta-llama/llama-3.1-8b-instruct',
       temperature: 0.5,
@@ -111,7 +113,7 @@ CONFIDENCE_SCORE: 82
   `.trim();
 };
 
-export async function runResearcherAgent(projectData: { projectName: string, description: string, reference: string }): Promise<string> {
+export async function runResearcherAgent(projectData: { projectName: string, description: string, reference: string }, signal?: AbortSignal): Promise<string> {
   const apiKey = import.meta.env.VITE_GROQ_API_KEY;
   if (!apiKey) return buildFallbackResearch(projectData);
 
@@ -126,7 +128,7 @@ Reference/Theme: ${projectData.reference}
 ### Task
 Perform a deep technical and market research analysis for this project.
       `;
-      return await runOpenRouterResearch(apiKey, prompt);
+      return await runOpenRouterResearch(apiKey, prompt, signal);
     } catch (err: any) {
       console.error('Researcher OpenRouter Error:', err);
       return `${buildFallbackResearch(projectData)}\n\n> Note: OpenRouter API request failed, fallback research was used.`;
@@ -155,7 +157,7 @@ Perform a deep technical and market research analysis for this project.
         ],
         model,
         temperature: 0.5,
-      });
+      }, { signal });
       return chatCompletion.choices[0]?.message?.content || 'Error: Blank research response';
     } catch (err: any) {
       console.error(`Researcher Generation Error (${model}):`, err);

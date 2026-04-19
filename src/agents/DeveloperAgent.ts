@@ -34,7 +34,7 @@ const OPENROUTER_MODELS = [
   'openrouter/auto'
 ];
 
-export async function runDeveloperAgent(projectData: { projectName: string, description: string }, research: string, design?: string, plannedFeatures?: string, testFeedback?: string): Promise<string> {
+export async function runDeveloperAgent(projectData: { projectName: string, description: string }, research: string, design?: string, plannedFeatures?: string, testFeedback?: string, signal?: AbortSignal): Promise<string> {
   const orKey = getOpenRouterKey();
   const geminiKey = getGeminiKey();
   
@@ -75,11 +75,36 @@ ${testFeedback}
 Generate the complete project repository. Ensure that all Selected MVP Features above have functional code implementations in the generated files.
   `;
 
-  // 1. Try OpenRouter (Primary)
+  // 1. Try Gemini 1.5 Flash (Primary)
+  if (geminiKey) {
+    try {
+      console.log("Developer Agent: Attempting primary generation with Gemini 1.5 Flash...");
+      const genAI = new GoogleGenerativeAI(geminiKey);
+      const model = genAI.getGenerativeModel({ 
+        model: "gemini-1.5-flash",
+        systemInstruction: SYSTEM_PROMPT
+      });
+
+      const result = await model.generateContent({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        generationConfig: {
+          responseMimeType: "application/json",
+          temperature: 0.3,
+        }
+      }, { signal });
+
+      const text = result.response.text();
+      if (text) return text;
+    } catch (err: any) {
+      console.error(`Gemini Primary Error:`, err);
+    }
+  }
+
+  // 2. Try OpenRouter (Fallback)
   if (orKey) {
     for (const model of OPENROUTER_MODELS) {
       try {
-        console.log(`Developer Agent: Attempting OpenRouter generation with ${model}...`);
+        console.log(`Developer Agent: Attempting fallback generation with ${model}...`);
         const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
           method: "POST",
           headers: {
@@ -96,7 +121,8 @@ Generate the complete project repository. Ensure that all Selected MVP Features 
             ],
             response_format: { type: "json_object" },
             temperature: 0.3
-          })
+          }),
+          signal
         });
 
         if (response.ok) {
@@ -110,31 +136,6 @@ Generate the complete project repository. Ensure that all Selected MVP Features 
       } catch (err: any) {
         console.error(`OpenRouter ${model} Error:`, err);
       }
-    }
-  }
-
-  // 2. Try Gemini 1.5 Pro (Fallback)
-  if (geminiKey) {
-    try {
-      console.log("Developer Agent: Attempting fallback generation with Gemini 1.5 Pro...");
-      const genAI = new GoogleGenerativeAI(geminiKey);
-      const model = genAI.getGenerativeModel({ 
-        model: "gemini-1.5-pro",
-        systemInstruction: SYSTEM_PROMPT
-      });
-
-      const result = await model.generateContent({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: {
-          responseMimeType: "application/json",
-          temperature: 0.3,
-        }
-      });
-
-      const text = result.response.text();
-      if (text) return text;
-    } catch (err: any) {
-      console.error(`Gemini Fallback Error:`, err);
     }
   }
 

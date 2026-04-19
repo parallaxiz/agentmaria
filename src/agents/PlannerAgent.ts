@@ -51,7 +51,7 @@ const buildFallbackPlan = (projectData: { projectName: string, description: stri
   });
 };
 
-export async function runPlannerAgent(projectData: { projectName: string, description: string }): Promise<string> {
+export async function runPlannerAgent(projectData: { projectName: string, description: string }, signal?: AbortSignal): Promise<string> {
   const groq = getAI();
   if (!groq) return buildFallbackPlan(projectData);
 
@@ -75,7 +75,7 @@ Return the result in the specified JSON format.
         model,
         temperature: 0.2,
         response_format: { type: 'json_object' }
-      });
+      }, { signal });
       
       const text = chatCompletion.choices[0]?.message?.content || '';
       if (text) return text;

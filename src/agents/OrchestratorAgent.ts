@@ -26,7 +26,7 @@ Be critical but constructive. Only return the JSON object.
 
 const MODEL = 'llama-3.3-70b-versatile';
 
-export async function runOrchestratorAudit(blackboard: any): Promise<string> {
+export async function runOrchestratorAudit(blackboard: any, signal?: AbortSignal): Promise<string> {
   const groq = getAI();
   const fallback = JSON.stringify({
     audit_results: [],
@@ -56,7 +56,7 @@ Perform a final compliance audit. Generate a note for each completed node (Resea
       model: MODEL,
       temperature: 0.2,
       response_format: { type: 'json_object' }
-    });
+    }, { signal });
 
     return chatCompletion.choices[0]?.message?.content || fallback;
   } catch (err) {

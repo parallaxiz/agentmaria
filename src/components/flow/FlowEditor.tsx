@@ -82,6 +82,7 @@ const FlowInner = () => {
   const [menu, setMenu] = useState<{ id: string; top: number; left: number } | null>(null);
 
   const terminationRef = useRef(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
 
   const onDragOver = useCallback((event: React.DragEvent) => {
@@ -166,20 +167,28 @@ const FlowInner = () => {
     const sortedNodes = [...activeProject.nodes].sort((a, b) => a.position.x - b.position.x);
     const startIndex = isResume ? activeProject.simulationIndex : 0;
     let testIterationCount = 0;
+    
     terminationRef.current = false;
+    abortControllerRef.current = new AbortController();
+    const signal = abortControllerRef.current.signal;
 
     for (let i = startIndex; i < sortedNodes.length; i++) {
-      if (terminationRef.current) {
+      if (terminationRef.current || signal.aborted) {
         console.log("Simulation terminated by user.");
         setIsSimulating(false);
         setSimulationState(activeProject.id, 'idle');
         return;
       }
+      const currentProject = useStore.getState().projects.find(p => p.id === activeProject.id);
+      if (!currentProject) return;
+
       const node = sortedNodes[i];
       if (node.data?.status === 'done') continue;
 
       setSimulationIndex(activeProject.id, i);
       updateNodeData(node.id, { status: 'processing' });
+
+      const blackboard = currentProject.blackboard;
 
       try {
         if (node.type === 'orchestrator') {
@@ -188,15 +197,15 @@ const FlowInner = () => {
           // Input is already in blackboard thanks to controlled component
         }
         else if (node.type === 'researcher') {
-          const coreGoal = activeProject.blackboard.core_goal;
+          const coreGoal = blackboard.core_goal;
           if (!coreGoal.description) throw new Error("Missing project description in Orchestrator.");
 
-          const research = await runResearcherAgent(coreGoal);
+          const research = await runResearcherAgent(coreGoal, signal);
           updateBlackboard('research_data', research);
         }
         else if (node.type === 'planner') {
-          const coreGoal = activeProject.blackboard.core_goal;
-          const plan = await runPlannerAgent(coreGoal);
+          const coreGoal = blackboard.core_goal;
+          const plan = await runPlannerAgent(coreGoal, signal);
           updateBlackboard('planning_data', plan);
 
           // PAUSE FOR HUMAN IN THE LOOP (User Approves Plan)
@@ -206,8 +215,8 @@ const FlowInner = () => {
           return;
         }
         else if (node.type === 'designer') {
-          const coreGoal = activeProject.blackboard.core_goal;
-          const planningDataStr = activeProject.blackboard.planning_data;
+          const coreGoal = blackboard.core_goal;
+          const planningDataStr = blackboard.planning_data;
 
           let selectedFeatures = '';
           try {
@@ -219,14 +228,14 @@ const FlowInner = () => {
             console.error("Failed to parse planning data for Designer:", e);
           }
 
-          const design = await runDesignerAgent(coreGoal.description, undefined, selectedFeatures);
+          const design = await runDesignerAgent(coreGoal.description, undefined, selectedFeatures, signal);
           updateBlackboard('ui_specs', design);
         }
         else if (node.type === 'developer') {
-          const coreGoal = activeProject.blackboard.core_goal;
-          const research = activeProject.blackboard.research_data;
-          const design = activeProject.blackboard.ui_specs;
-          const planningDataStr = activeProject.blackboard.planning_data;
+          const coreGoal = blackboard.core_goal;
+          const research = blackboard.research_data;
+          const design = blackboard.ui_specs;
+          const planningDataStr = blackboard.planning_data;
 
           let selectedFeatures = '';
           try {
@@ -242,17 +251,17 @@ const FlowInner = () => {
             console.warn("Developer node running with fallback or missing research data.");
           }
 
-          const testFeedback = activeProject.blackboard.test_feedback;
-          const code = await runDeveloperAgent(coreGoal, research, design, selectedFeatures, testFeedback);
+          const testFeedback = blackboard.test_feedback;
+          const code = await runDeveloperAgent(coreGoal, research, design, selectedFeatures, testFeedback, signal);
           updateBlackboard('implementation_tasks', code);
         }
         else if (node.type === 'tester') {
-          const coreGoal = activeProject.blackboard.core_goal;
-          const repoJson = activeProject.blackboard.implementation_tasks;
+          const coreGoal = blackboard.core_goal;
+          const repoJson = blackboard.implementation_tasks;
 
           if (!repoJson) throw new Error("No repository code found for testing.");
 
-          const results = await runTesterAgent(repoJson, JSON.stringify(coreGoal));
+          const results = await runTesterAgent(repoJson, JSON.stringify(coreGoal), signal);
           updateBlackboard('test_results', results);
 
           try {
@@ -278,13 +287,13 @@ const FlowInner = () => {
           }
         }
         else if (node.type === 'writer') {
-          const coreGoal = activeProject.blackboard.core_goal;
-          const implementation = activeProject.blackboard.implementation_tasks;
-          const research = activeProject.blackboard.research_data;
+          const coreGoal = blackboard.core_goal;
+          const implementation = blackboard.implementation_tasks;
+          const research = blackboard.research_data;
 
           if (!implementation) throw new Error("No implementation code found for documentation.");
 
-          const docs = await runWriterAgent(coreGoal, implementation, research);
+          const docs = await runWriterAgent(coreGoal, implementation, research, signal);
           updateBlackboard('tech_docs', docs);
         }
         else {
@@ -299,6 +308,12 @@ const FlowInner = () => {
           await new Promise(resolve => setTimeout(resolve, 2000));
         }
       } catch (err: any) {
+        if (err.name === 'AbortError' || signal.aborted) {
+          console.log("Simulation terminated by user (aborted).");
+          setIsSimulating(false);
+          setSimulationState(activeProject.id, 'idle');
+          return;
+        }
         console.error(`Error in ${node.type}:`, err);
         updateNodeData(node.id, { status: 'error' });
         setIsSimulating(false);
@@ -308,22 +323,28 @@ const FlowInner = () => {
 
     // FINAL AUDIT BY ORCHESTRATOR
     try {
+      if (signal.aborted) return;
       const orchestratorNode = sortedNodes.find(n => n.type === 'orchestrator');
       if (orchestratorNode) {
         updateNodeData(orchestratorNode.id, { status: 'processing' });
         const latestBlackboard = useStore.getState().projects.find(p => p.id === activeProject.id)?.blackboard;
         if (latestBlackboard) {
-          const audit = await runOrchestratorAudit(latestBlackboard);
+          const audit = await runOrchestratorAudit(latestBlackboard, signal);
           updateBlackboard('orchestrator_notes', audit);
           updateNodeData(orchestratorNode.id, { status: 'done' });
         }
       }
-    } catch (err) {
-      console.error("Final Audit Error:", err);
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+         console.log("Final Audit aborted.");
+      } else {
+        console.error("Final Audit Error:", err);
+      }
     }
 
     setIsSimulating(false);
     setSimulationState(activeProject.id, 'idle');
+    abortControllerRef.current = null;
   };
 
   if (!activeProject) return null;
@@ -489,7 +510,14 @@ const FlowInner = () => {
             {/* Bottom Actions Bar */}
             <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-[60]">
               <button
-                onClick={() => isSimulating ? (terminationRef.current = true) : runSimulation()}
+                onClick={() => {
+                  if (isSimulating) {
+                    terminationRef.current = true;
+                    abortControllerRef.current?.abort();
+                  } else {
+                    runSimulation();
+                  }
+                }}
                 className={cn(
                   "flex items-center gap-3 px-10 py-4 rounded-full text-sm font-bold shadow-[0_20px_50px_rgba(255,255,255,0.1)] transition-all active:scale-95 group",
                   isSimulating
