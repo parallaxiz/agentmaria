@@ -1,6 +1,5 @@
 import Groq from 'groq-sdk';
 
-const TESTER_API_KEY = "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";
 
 const getAI = () => {
   const apiKey = import.meta.env.VITE_GROQ_API_KEY;

@@ -1,9 +1,8 @@
 import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
-import { 
-  ReactFlow, 
-  Background, 
-  Controls, 
-  MiniMap,
+import {
+  ReactFlow,
+  Background,
+  Controls,
   Panel,
   BackgroundVariant,
   ReactFlowProvider,
@@ -36,17 +35,15 @@ import { runPlannerAgent } from '../../agents/PlannerAgent';
 import { runTesterAgent } from '../../agents/TesterAgent';
 import { runOrchestratorAudit } from '../../agents/OrchestratorAgent';
 
-import { 
-  Plus, 
-  Trash2, 
+import {
+  Plus,
+  Trash2,
   Play,
   ArrowLeft,
   FileText,
   Activity,
   MonitorPlay,
   Square,
-  CircleStop,
-  X
 } from 'lucide-react';
 
 const nodeTypes = {
@@ -62,7 +59,7 @@ const nodeTypes = {
 const FlowInner = () => {
   const activeProjectId = useStore((state) => state.activeProjectId);
   const projects = useStore((state) => state.projects);
-  const activeProject = useMemo(() => 
+  const activeProject = useMemo(() =>
     projects.find(p => p.id === activeProjectId),
     [projects, activeProjectId]
   );
@@ -82,7 +79,7 @@ const FlowInner = () => {
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [activeTab, setActiveTab] = useState<'workflow' | 'devplan' | 'warroom'>('workflow');
   const [menu, setMenu] = useState<{ id: string; top: number; left: number } | null>(null);
-  
+
   const terminationRef = useRef(false);
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
 
@@ -150,7 +147,7 @@ const FlowInner = () => {
   // Blackboard-aware simulation orchestrator
   const runSimulation = async (isResume = false) => {
     if (!activeProject || activeProject.nodes.length === 0) return;
-    
+
     const setSimulationState = useStore.getState().setSimulationState;
     const setSimulationIndex = useStore.getState().setSimulationIndex;
 
@@ -179,20 +176,20 @@ const FlowInner = () => {
       }
       const node = sortedNodes[i];
       if (node.data?.status === 'done') continue;
-      
+
       setSimulationIndex(activeProject.id, i);
       updateNodeData(node.id, { status: 'processing' });
-      
+
       try {
         if (node.type === 'orchestrator') {
           // Orchestrator just validates input and sets the "base" of the project
           await new Promise(resolve => setTimeout(resolve, 800));
           // Input is already in blackboard thanks to controlled component
-        } 
+        }
         else if (node.type === 'researcher') {
           const coreGoal = activeProject.blackboard.core_goal;
           if (!coreGoal.description) throw new Error("Missing project description in Orchestrator.");
-          
+
           const research = await runResearcherAgent(coreGoal);
           updateBlackboard('research_data', research);
         }
@@ -200,17 +197,17 @@ const FlowInner = () => {
           const coreGoal = activeProject.blackboard.core_goal;
           const plan = await runPlannerAgent(coreGoal);
           updateBlackboard('planning_data', plan);
-          
+
           // PAUSE FOR HUMAN IN THE LOOP (User Approves Plan)
           updateNodeData(node.id, { status: 'waiting' });
           setSimulationState(activeProject.id, 'waiting');
           setIsSimulating(false);
-          return; 
+          return;
         }
         else if (node.type === 'designer') {
           const coreGoal = activeProject.blackboard.core_goal;
           const planningDataStr = activeProject.blackboard.planning_data;
-          
+
           let selectedFeatures = '';
           try {
             if (planningDataStr) {
@@ -239,9 +236,9 @@ const FlowInner = () => {
           } catch (e) {
             console.error("Failed to parse planning data for Developer:", e);
           }
-          
+
           if (!research || research.includes('Note:')) {
-             console.warn("Developer node running with fallback or missing research data.");
+            console.warn("Developer node running with fallback or missing research data.");
           }
 
           const testFeedback = activeProject.blackboard.test_feedback;
@@ -251,7 +248,7 @@ const FlowInner = () => {
         else if (node.type === 'tester') {
           const coreGoal = activeProject.blackboard.core_goal;
           const repoJson = activeProject.blackboard.implementation_tasks;
-          
+
           if (!repoJson) throw new Error("No repository code found for testing.");
 
           const results = await runTesterAgent(repoJson, JSON.stringify(coreGoal));
@@ -261,14 +258,14 @@ const FlowInner = () => {
             const parsedResults = JSON.parse(results);
             if (parsedResults.has_errors && testIterationCount < 2) {
               updateBlackboard('test_feedback', parsedResults.feedback_for_developer);
-              
+
               // FIND DEVELOPER NODE TO JUMP BACK
               const devNodeIndex = sortedNodes.findIndex(n => n.type === 'developer');
               if (devNodeIndex !== -1) {
                 // RESET DEVELOPER NODE
                 updateNodeData(sortedNodes[devNodeIndex].id, { status: 'idle' });
                 updateNodeData(node.id, { status: 'idle' }); // Reset self too for clarity
-                
+
                 testIterationCount++;
                 i = devNodeIndex - 1; // Subtract 1 because the loop increment will move it to devNodeIndex
                 console.log(`[TESTER] Errors found. Jumping back to Developer. Iteration: ${testIterationCount}`);
@@ -285,7 +282,7 @@ const FlowInner = () => {
         }
 
         updateNodeData(node.id, { status: 'done' });
-        
+
         // THROTTLING: 2s pause between agent calls for Groq stability and UI feel
         if (i < sortedNodes.length - 1) {
           await new Promise(resolve => setTimeout(resolve, 2000));
@@ -325,13 +322,13 @@ const FlowInner = () => {
       {/* Top Navigation Bar */}
       <div className="h-16 px-6 border-b border-white/5 bg-black/40 backdrop-blur-3xl flex items-center justify-between z-[100]">
         <div className="flex items-center gap-6">
-          <button 
+          <button
             onClick={() => setActiveProject(null)}
             className="p-2 hover:bg-white/5 rounded-xl text-zinc-500 hover:text-white transition-all border border-transparent hover:border-white/10"
           >
             <ArrowLeft size={18} />
           </button>
-          
+
           <div className="flex flex-col">
             <h2 className="text-sm font-bold text-white leading-tight">{activeProject.name}</h2>
             <div className="flex items-center gap-2">
@@ -342,7 +339,7 @@ const FlowInner = () => {
         </div>
 
         <div className="flex items-center p-1 bg-zinc-900/50 border border-white/5 rounded-xl">
-          <button 
+          <button
             onClick={() => setActiveTab('workflow')}
             className={cn(
               "flex items-center gap-2 px-4 py-1.5 text-xs font-bold rounded-lg transition-all",
@@ -352,7 +349,7 @@ const FlowInner = () => {
             <Activity size={14} />
             Workflow
           </button>
-          <button 
+          <button
             onClick={() => setActiveTab('devplan')}
             className={cn(
               "flex items-center gap-2 px-4 py-1.5 text-xs font-bold rounded-lg transition-all",
@@ -362,7 +359,7 @@ const FlowInner = () => {
             <FileText size={14} />
             DevPlan
           </button>
-          <button 
+          <button
             onClick={() => setActiveTab('warroom')}
             className={cn(
               "flex items-center gap-2 px-4 py-1.5 text-xs font-bold rounded-lg transition-all",
@@ -382,7 +379,7 @@ const FlowInner = () => {
           <>
             {/* Floating Add Node Button */}
             <div className="absolute top-6 right-6 z-[60]">
-              <button 
+              <button
                 onClick={() => setShowAddMenu(!showAddMenu)}
                 className="w-12 h-12 bg-white text-black hover:bg-zinc-200 rounded-2xl shadow-2xl flex items-center justify-center transition-all active:scale-95 group"
               >
@@ -417,7 +414,7 @@ const FlowInner = () => {
             </div>
 
             {/* Dustbin Zone */}
-            <div 
+            <div
               id="dustbin-zone"
               onDragOver={onDragOver}
               className="absolute bottom-10 right-10 z-[50] w-16 h-16 bg-red-500/10 border border-red-500/20 rounded-full flex items-center justify-center text-red-500 hover:bg-red-500/20 hover:scale-110 transition-all shadow-2xl backdrop-blur-sm"
@@ -444,7 +441,7 @@ const FlowInner = () => {
             >
               <Background variant={BackgroundVariant.Dots} gap={80} size={6} color="#333" />
               <Controls position="bottom-left" className="!bg-zinc-900 !border-white/10 !shadow-2xl" style={{ marginBottom: '80px' }} />
-              
+
               <Panel position="bottom-left" className="mb-[160px] ml-6">
                 <button
                   onClick={() => {
@@ -480,12 +477,12 @@ const FlowInner = () => {
 
             {/* Bottom Actions Bar */}
             <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-[60]">
-              <button 
+              <button
                 onClick={() => isSimulating ? (terminationRef.current = true) : runSimulation()}
                 className={cn(
                   "flex items-center gap-3 px-10 py-4 rounded-full text-sm font-bold shadow-[0_20px_50px_rgba(255,255,255,0.1)] transition-all active:scale-95 group",
-                  isSimulating 
-                    ? "bg-red-500 hover:bg-red-600 text-white" 
+                  isSimulating
+                    ? "bg-red-500 hover:bg-red-600 text-white"
                     : "bg-white hover:bg-zinc-200 text-black"
                 )}
               >
