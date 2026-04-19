@@ -34,6 +34,7 @@ import { runDeveloperAgent } from '../../agents/DeveloperAgent';
 import { runPlannerAgent } from '../../agents/PlannerAgent';
 import { runTesterAgent } from '../../agents/TesterAgent';
 import { runOrchestratorAudit } from '../../agents/OrchestratorAgent';
+import { runWriterAgent } from '../../agents/WriterAgent';
 
 import {
   Plus,
@@ -275,6 +276,16 @@ const FlowInner = () => {
           } catch (e) {
             console.error("Failed to parse tester results:", e);
           }
+        }
+        else if (node.type === 'writer') {
+          const coreGoal = activeProject.blackboard.core_goal;
+          const implementation = activeProject.blackboard.implementation_tasks;
+          const research = activeProject.blackboard.research_data;
+
+          if (!implementation) throw new Error("No implementation code found for documentation.");
+
+          const docs = await runWriterAgent(coreGoal, implementation, research);
+          updateBlackboard('tech_docs', docs);
         }
         else {
           // Fallback for other nodes

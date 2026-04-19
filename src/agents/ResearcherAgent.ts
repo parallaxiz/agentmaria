@@ -53,6 +53,10 @@ Your report MUST include the following 6 sections in clear Markdown:
 - BE EXTREMELY VERBOSE AND DETAILED.
 - Use professional business terminology.
 - Use headers (##), subheaders (###), and clean bullet points.
+- **Tables**: When including tables, ensure you use proper Markdown syntax with a newline before and after the table. Use the format:
+| Column 1 | Column 2 |
+| :--- | :--- |
+| Row 1 Data | Row 2 Data |
 - Include exactly "CONFIDENCE_SCORE: XX" (0-100) at the very end.
 `;
 
