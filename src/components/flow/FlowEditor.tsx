@@ -33,6 +33,8 @@ import { runResearcherAgent } from '../../agents/ResearcherAgent';
 import { runDesignerAgent } from '../../agents/DesignerAgent';
 import { runDeveloperAgent } from '../../agents/DeveloperAgent';
 import { runPlannerAgent } from '../../agents/PlannerAgent';
+import { runTesterAgent } from '../../agents/TesterAgent';
+import { runOrchestratorAudit } from '../../agents/OrchestratorAgent';
 
 import { 
   Plus, 
@@ -41,7 +43,10 @@ import {
   ArrowLeft,
   FileText,
   Activity,
-  MonitorPlay
+  MonitorPlay,
+  Square,
+  CircleStop,
+  X
 } from 'lucide-react';
 
 const nodeTypes = {
@@ -78,6 +83,7 @@ const FlowInner = () => {
   const [activeTab, setActiveTab] = useState<'workflow' | 'devplan' | 'warroom'>('workflow');
   const [menu, setMenu] = useState<{ id: string; top: number; left: number } | null>(null);
   
+  const terminationRef = useRef(false);
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
 
   const onDragOver = useCallback((event: React.DragEvent) => {
@@ -161,8 +167,16 @@ const FlowInner = () => {
 
     const sortedNodes = [...activeProject.nodes].sort((a, b) => a.position.x - b.position.x);
     const startIndex = isResume ? activeProject.simulationIndex : 0;
+    let testIterationCount = 0;
+    terminationRef.current = false;
 
     for (let i = startIndex; i < sortedNodes.length; i++) {
+      if (terminationRef.current) {
+        console.log("Simulation terminated by user.");
+        setIsSimulating(false);
+        setSimulationState(activeProject.id, 'idle');
+        return;
+      }
       const node = sortedNodes[i];
       if (node.data?.status === 'done') continue;
       
@@ -230,8 +244,40 @@ const FlowInner = () => {
              console.warn("Developer node running with fallback or missing research data.");
           }
 
-          const code = await runDeveloperAgent(coreGoal, research, design, selectedFeatures);
+          const testFeedback = activeProject.blackboard.test_feedback;
+          const code = await runDeveloperAgent(coreGoal, research, design, selectedFeatures, testFeedback);
           updateBlackboard('implementation_tasks', code);
+        }
+        else if (node.type === 'tester') {
+          const coreGoal = activeProject.blackboard.core_goal;
+          const repoJson = activeProject.blackboard.implementation_tasks;
+          
+          if (!repoJson) throw new Error("No repository code found for testing.");
+
+          const results = await runTesterAgent(repoJson, JSON.stringify(coreGoal));
+          updateBlackboard('test_results', results);
+
+          try {
+            const parsedResults = JSON.parse(results);
+            if (parsedResults.has_errors && testIterationCount < 2) {
+              updateBlackboard('test_feedback', parsedResults.feedback_for_developer);
+              
+              // FIND DEVELOPER NODE TO JUMP BACK
+              const devNodeIndex = sortedNodes.findIndex(n => n.type === 'developer');
+              if (devNodeIndex !== -1) {
+                // RESET DEVELOPER NODE
+                updateNodeData(sortedNodes[devNodeIndex].id, { status: 'idle' });
+                updateNodeData(node.id, { status: 'idle' }); // Reset self too for clarity
+                
+                testIterationCount++;
+                i = devNodeIndex - 1; // Subtract 1 because the loop increment will move it to devNodeIndex
+                console.log(`[TESTER] Errors found. Jumping back to Developer. Iteration: ${testIterationCount}`);
+                continue;
+              }
+            }
+          } catch (e) {
+            console.error("Failed to parse tester results:", e);
+          }
         }
         else {
           // Fallback for other nodes
@@ -252,8 +298,24 @@ const FlowInner = () => {
       }
     }
 
+    // FINAL AUDIT BY ORCHESTRATOR
+    try {
+      const orchestratorNode = sortedNodes.find(n => n.type === 'orchestrator');
+      if (orchestratorNode) {
+        updateNodeData(orchestratorNode.id, { status: 'processing' });
+        const latestBlackboard = useStore.getState().projects.find(p => p.id === activeProject.id)?.blackboard;
+        if (latestBlackboard) {
+          const audit = await runOrchestratorAudit(latestBlackboard);
+          updateBlackboard('orchestrator_notes', audit);
+          updateNodeData(orchestratorNode.id, { status: 'done' });
+        }
+      }
+    } catch (err) {
+      console.error("Final Audit Error:", err);
+    }
+
     setIsSimulating(false);
-    setSimulationState(activeProject.id, 'done');
+    setSimulationState(activeProject.id, 'idle');
   };
 
   if (!activeProject) return null;
@@ -419,17 +481,19 @@ const FlowInner = () => {
             {/* Bottom Actions Bar */}
             <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-[60]">
               <button 
-                onClick={() => runSimulation()}
-                disabled={isSimulating}
-                className="flex items-center gap-3 bg-white hover:bg-zinc-200 disabled:bg-white/50 text-black px-10 py-4 rounded-full text-sm font-bold shadow-[0_20px_50px_rgba(255,255,255,0.1)] transition-all active:scale-95 group"
+                onClick={() => isSimulating ? (terminationRef.current = true) : runSimulation()}
+                className={cn(
+                  "flex items-center gap-3 px-10 py-4 rounded-full text-sm font-bold shadow-[0_20px_50px_rgba(255,255,255,0.1)] transition-all active:scale-95 group",
+                  isSimulating 
+                    ? "bg-red-500 hover:bg-red-600 text-white" 
+                    : "bg-white hover:bg-zinc-200 text-black"
+                )}
               >
                 {isSimulating ? (
-                  <div className="flex gap-1.5 items-center">
-                    <span className="uppercase tracking-widest text-[10px] font-black">Processing</span>
-                    <div className="w-1 h-1 bg-black rounded-full animate-bounce" />
-                    <div className="w-1 h-1 bg-black rounded-full animate-bounce [animation-delay:0.2s]" />
-                    <div className="w-1 h-1 bg-black rounded-full animate-bounce [animation-delay:0.4s]" />
-                  </div>
+                  <>
+                    <Square size={16} fill="white" className="group-hover:scale-110 transition-transform" />
+                    Terminate Simulation
+                  </>
                 ) : (
                   <>
                     <Play size={16} fill="currentColor" className="group-hover:scale-110 transition-transform" />

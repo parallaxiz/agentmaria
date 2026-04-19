@@ -317,6 +317,45 @@ const NodeRenderer = ({ node, blackboard, activeProject }: { node: any, blackboa
           <h4 className="text-[10px] font-black uppercase text-zinc-500 tracking-widest">Mission Briefing</h4>
           <p className="text-zinc-300 leading-relaxed italic">"{core.description || 'Awaiting description...'}"</p>
         </div>
+
+        {blackboard.orchestrator_notes && (
+          <div className="space-y-6">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-500">
+                <Activity size={20} />
+              </div>
+              <h3 className="text-xl font-bold text-white tracking-tight">LangSmith Compliance Audit</h3>
+            </div>
+            
+            <div className="grid gap-4">
+              {(() => {
+                const audit = extractJson(blackboard.orchestrator_notes);
+                return audit?.audit_results?.map((res: any, idx: number) => (
+                  <div key={idx} className="p-5 bg-zinc-900/40 border border-white/5 rounded-2xl flex items-start gap-4 hover:border-white/10 transition-all group">
+                    <div className={cn(
+                      "p-2 rounded-lg shrink-0",
+                      res.compliance === 'compliant' ? "bg-emerald-500/10 text-emerald-500" : "bg-red-500/10 text-red-500"
+                    )}>
+                      {res.compliance === 'compliant' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+                    </div>
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm font-black uppercase tracking-widest text-white">{res.node_type}</span>
+                        <span className={cn(
+                          "px-2 py-0.5 text-[8px] font-black uppercase tracking-tighter rounded border",
+                          res.compliance === 'compliant' ? "bg-emerald-500/5 text-emerald-500 border-emerald-500/20" : "bg-red-500/5 text-red-500 border-red-500/20"
+                        )}>
+                          {res.compliance}
+                        </span>
+                      </div>
+                      <p className="text-xs text-zinc-400 leading-relaxed italic">"{res.note}"</p>
+                    </div>
+                  </div>
+                ));
+              })()}
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -327,6 +366,7 @@ const NodeRenderer = ({ node, blackboard, activeProject }: { node: any, blackboa
     researcher: 'research_data',
     designer: 'ui_specs',
     developer: 'implementation_tasks',
+    tester: 'test_results',
     writer: 'tech_docs'
   };
 
@@ -334,6 +374,60 @@ const NodeRenderer = ({ node, blackboard, activeProject }: { node: any, blackboa
 
   if (node.type === 'developer') {
     return <RepositoryView data={result} />;
+  }
+
+  if (node.type === 'tester') {
+    const testData = extractJson(result) || { test_cases: [], summary: '', has_errors: false };
+    return (
+      <div className="space-y-8 animate-in fade-in duration-700">
+        <div className="flex items-center justify-between">
+          <div className="space-y-1">
+            <h3 className="text-xl font-bold text-white flex items-center gap-2">
+              <CheckSquare size={20} className="text-emerald-500" />
+              Test Execution Results
+            </h3>
+            <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest">Autonomous Debugger Node</p>
+          </div>
+          {testData.has_errors ? (
+            <div className="px-3 py-1 bg-red-500/10 border border-red-500/20 text-red-500 rounded-full text-[10px] font-black uppercase tracking-widest animate-pulse">
+              Requires Correction
+            </div>
+          ) : (
+            <div className="px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 rounded-full text-[10px] font-black uppercase tracking-widest">
+              Project Validated
+            </div>
+          )}
+        </div>
+
+        <div className="p-6 bg-zinc-900/50 border border-white/5 rounded-2xl">
+          <p className="text-zinc-300 italic leading-relaxed text-sm">"{testData.summary}"</p>
+        </div>
+
+        <div className="grid gap-3">
+          {testData.test_cases?.map((t: any, idx: number) => (
+            <div key={idx} className="p-4 bg-zinc-950/40 border border-white/5 rounded-xl flex items-center justify-between hover:bg-zinc-900/40 transition-all group">
+              <div className="flex items-center gap-4">
+                <div className={cn(
+                  "w-8 h-8 rounded-lg flex items-center justify-center border",
+                  t.status === 'passed' 
+                    ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-500" 
+                    : "bg-red-500/10 border-red-500/20 text-red-500"
+                )}>
+                  {t.status === 'passed' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+                </div>
+                <div className="space-y-0.5">
+                  <h5 className="text-sm font-bold text-zinc-200 group-hover:text-white transition-colors">{t.test_name}</h5>
+                  <p className="text-xs text-zinc-500">{t.description}</p>
+                </div>
+              </div>
+              <p className="text-[10px] font-mono text-zinc-400 opacity-0 group-hover:opacity-100 transition-opacity max-w-[300px] truncate">
+                {t.feedback}
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
   }
 
   if (!result && status !== 'done' && status !== 'waiting') {
@@ -630,6 +724,7 @@ export const DevPlanView: React.FC = () => {
               researcher: 'research_data',
               designer: 'ui_specs',
               developer: 'implementation_tasks',
+              tester: 'test_results',
               writer: 'tech_docs'
             };
             const slotValue = activeProject.blackboard[slotMap[node.type as string] || ''];

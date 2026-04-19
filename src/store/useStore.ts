@@ -19,6 +19,9 @@ export interface Blackboard {
   implementation_tasks: string;
   tech_docs: string;
   planning_data: string;
+  test_results: string;
+  test_feedback: string;
+  orchestrator_notes: string;
 }
 
 export interface Project {
@@ -89,6 +92,9 @@ export const useStore = create<AppState>()(
             implementation_tasks: '',
             tech_docs: '',
             planning_data: '',
+            test_results: '',
+            test_feedback: '',
+            orchestrator_notes: '',
           },
           simulationIndex: 0,
           simulationStatus: 'idle',
@@ -208,6 +214,16 @@ export const useStore = create<AppState>()(
         const { activeProjectId, projects } = get();
         if (!activeProjectId) return;
 
+        const project = projects.find(p => p.id === activeProjectId);
+        if (!project) return;
+
+        // Constraint: One node of each type per project
+        const typeExists = project.nodes.some(n => n.type === type);
+        if (typeExists) {
+          console.warn(`Node of type ${type} already exists in this project.`);
+          return;
+        }
+
         const newNode = {
           id: crypto.randomUUID(),
           type,
@@ -230,6 +246,13 @@ export const useStore = create<AppState>()(
 
         const project = projects.find(p => p.id === activeProjectId);
         if (!project) return;
+
+        // Constraint: One node of each type per project
+        const typeExists = project.nodes.some(n => n.type === type);
+        if (typeExists) {
+          console.warn(`Node of type ${type} already exists in this project.`);
+          return;
+        }
 
         const sourceNode = project.nodes.find(n => n.id === sourceNodeId);
         if (!sourceNode) return;

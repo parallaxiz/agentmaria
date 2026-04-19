@@ -1,10 +1,7 @@
-import Groq from 'groq-sdk';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
-const getAI = () => {
-  const apiKey = import.meta.env.VITE_GROQ_API_KEY;
-  if (!apiKey) return null;
-  return new Groq({ apiKey, dangerouslyAllowBrowser: true });
-};
+const getOpenRouterKey = () => import.meta.env.VITE_OPENROUTER_API_KEY;
+const getGeminiKey = () => import.meta.env.VITE_GEMINI_DEVELOPER_API_KEY;
 
 const SYSTEM_PROMPT = `
 You are a Lead Developer Agent. Your job is to translate project requirements, research, and designs into a full, production-ready project repository.
@@ -31,10 +28,16 @@ You are a Lead Developer Agent. Your job is to translate project requirements, r
 - Only return the JSON object, NO other text or markdown wrappers.
 `;
 
-const MODEL_CANDIDATES = ['llama-3.3-70b-versatile', 'llama-3.1-70b-versatile'];
+const OPENROUTER_MODELS = [
+  'mistralai/pixtral-12b:free',
+  'google/gemini-2.0-flash-exp:free',
+  'openrouter/auto'
+];
 
-export async function runDeveloperAgent(projectData: { projectName: string, description: string }, research: string, design?: string, plannedFeatures?: string): Promise<string> {
-  const groq = getAI();
+export async function runDeveloperAgent(projectData: { projectName: string, description: string }, research: string, design?: string, plannedFeatures?: string, testFeedback?: string): Promise<string> {
+  const orKey = getOpenRouterKey();
+  const geminiKey = getGeminiKey();
+  
   const fallbackRepo = JSON.stringify({
     repo_name: projectData.projectName.toLowerCase().replace(/\s+/g, '-'),
     files: [
@@ -49,8 +52,6 @@ export async function runDeveloperAgent(projectData: { projectName: string, desc
     ]
   });
 
-  if (!groq) return fallbackRepo;
-
   const prompt = `
 ### Project Context
 Name: ${projectData.projectName}
@@ -64,26 +65,76 @@ ${plannedFeatures || 'Use general best practices for this niche.'}
 Research Data: ${research}
 UI/Design Specs: ${design || 'No design specs provided yet.'}
 
+${testFeedback ? `
+### CRITICAL CORRECTIONS REQUIRED
+The Tester has identified the following bugs or missing implementations. YOU MUST FIX THESE IN THIS ITERATION:
+${testFeedback}
+` : ''}
+
 ### Task
 Generate the complete project repository. Ensure that all Selected MVP Features above have functional code implementations in the generated files.
   `;
 
-  for (const model of MODEL_CANDIDATES) {
+  // 1. Try OpenRouter (Primary)
+  if (orKey) {
+    for (const model of OPENROUTER_MODELS) {
+      try {
+        console.log(`Developer Agent: Attempting OpenRouter generation with ${model}...`);
+        const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${orKey}`,
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://agent-maria.com",
+            "X-Title": "Agent Maria",
+          },
+          body: JSON.stringify({
+            model,
+            messages: [
+              { role: "system", content: SYSTEM_PROMPT },
+              { role: "user", content: prompt }
+            ],
+            response_format: { type: "json_object" },
+            temperature: 0.3
+          })
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const text = data.choices?.[0]?.message?.content || '';
+          if (text) return text;
+        } else {
+          const errBody = await response.json().catch(() => ({}));
+          console.warn(`OpenRouter ${model} failed:`, errBody);
+        }
+      } catch (err: any) {
+        console.error(`OpenRouter ${model} Error:`, err);
+      }
+    }
+  }
+
+  // 2. Try Gemini 1.5 Pro (Fallback)
+  if (geminiKey) {
     try {
-      const chatCompletion = await groq.chat.completions.create({
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: prompt }
-        ],
-        model,
-        temperature: 0.3,
-        response_format: { type: 'json_object' }
+      console.log("Developer Agent: Attempting fallback generation with Gemini 1.5 Pro...");
+      const genAI = new GoogleGenerativeAI(geminiKey);
+      const model = genAI.getGenerativeModel({ 
+        model: "gemini-1.5-pro",
+        systemInstruction: SYSTEM_PROMPT
       });
 
-      const text = chatCompletion.choices[0]?.message?.content || '';
+      const result = await model.generateContent({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        generationConfig: {
+          responseMimeType: "application/json",
+          temperature: 0.3,
+        }
+      });
+
+      const text = result.response.text();
       if (text) return text;
     } catch (err: any) {
-      console.error(`Developer Generation Error (${model}):`, err);
+      console.error(`Gemini Fallback Error:`, err);
     }
   }
 
